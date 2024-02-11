@@ -10,6 +10,7 @@ import android.content.Intent
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import android.widget.ListView
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -104,7 +105,7 @@ open class IntentFallbackDialog {
         const val URI = "URI"
 
         private fun saveFileInto(context: Context, uri: Uri, toFile: File): File {
-            toFile.parentFile.mkdirs()
+            toFile.parentFile?.mkdirs()
 
             val input = context.contentResolver.openInputStream(uri) ?: error("Can't write to file: $uri")
 
@@ -116,7 +117,7 @@ open class IntentFallbackDialog {
             return toFile
         }
 
-        private fun createTmpFile(context: Context, extension: String) =
+        internal fun createTmpFile(context: Context, extension: String) =
             File.createTempFile("temp_book", ".$extension", context.cacheDir)!!
 
         fun getExtension(uri: Uri, mimeType: String?, contentResolver: ContentResolver): String? {
@@ -146,12 +147,19 @@ open class IntentFallbackDialog {
                 toFile: File,
                 action: (File) -> Unit
         ) {
-            GlobalScope.launch(Dispatchers.Main) {
+            val handler = CoroutineExceptionHandler { _, exception ->
+                exception.printStackTrace()
+                AlertDialog.Builder(myActivity).setMessage(exception.message)
+                    .setPositiveButton("OK"
+                    ) { dialog, _ -> dialog.dismiss() }.create().show()
+            }
+
+            GlobalScope.launch(Dispatchers.Main + handler) {
                 val progressBar = ProgressDialog(myActivity)
                 progressBar.isIndeterminate = true
                 progressBar.show()
                 try {
-                    withContext(Dispatchers.Default) {
+                    withContext(Dispatchers.IO) {
                         saveFileInto(
                                 myActivity,
                                 uri,

@@ -1,5 +1,5 @@
 apply plugin: 'com.android.application'
-apply plugin: 'kotlin-multiplatform'
+apply plugin: 'kotlin-android'
 apply from: '../project.gradle'
 
 project.ext {
@@ -19,19 +19,27 @@ project.ext {
 dependencies {
 
     implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.preference:preference-ktx:1.2.1'
     //tab layout
-    implementation 'com.google.android.material:material:1.9.0'
+    implementation 'com.google.android.material:material:1.11.0'
     implementation project(':tree-view-list-android')
 
+
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
     implementation project(":nativeLibs:djvuModule")
     implementation project(":nativeLibs:mupdfModule")
 
+
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
     androidTestImplementation 'androidx.test:core:1.5.0'
+    androidTestImplementation 'androidx.test:core-ktx:1.5.0'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.ext:junit-ktx:1.1.5'
     androidTestImplementation 'androidx.test:runner:1.5.2'
     androidTestImplementation 'androidx.test:rules:1.5.0'
-
+    androidTestImplementation 'androidx.test.uiautomator:uiautomator:2.2.0'
 
     //MPP test workaround
     implementation project(":common")
@@ -69,11 +77,6 @@ android {
 
     sourceSets {
         main {
-            assets.srcDirs = ['assets']
-            //java.srcDirs += '../common/src/main/kotlin'
-            if (excludeNativeLibsSources) {
-                jniLibs.srcDirs = [mupdf_libs, djvu_libs]
-            }
             java {
                 srcDirs += "../nativeLibs/mupdf/platform/java/src"
 
@@ -84,7 +87,6 @@ android {
 
         }
 
-        //test
         androidTest {
             java.srcDirs += 'src/androidTest/kotlin'
             resources.srcDirs += 'src/androidTest/assets'
@@ -105,57 +107,35 @@ android {
             universalApk false
         }
     }
+    packagingOptions {
+        resources {
+            excludes += ['META-INF/main.kotlin_module']
+        }
+    }
 
     // make per-variant version code
     android.applicationVariants.configureEach { variant ->
         variant.outputs.each { output ->
             def filter = output.getFilter(com.android.build.OutputFile.ABI)
-            output.versionCodeOverride = project.ext.abiCodes.get(filter) + variant.versionCode
-            println "New version code for " + variant.buildType.name + "/" + filter + " is " + output.versionCodeOverride
-        }
-    }
-
-    lintOptions { abortOnError false }
-
-    packagingOptions {
-        exclude 'META-INF/main.kotlin_module'
-    }
-}
-
-kotlin {
-    sourceSets {
-        commonMain {
-            dependencies {
-                implementation 'org.jetbrains.kotlin:kotlin-stdlib-common'
-                implementation project(":common")
+            if (project.ext.abiCodes.get(filter)!= null) {
+                output.versionCodeOverride = project.ext.abiCodes.get(filter) + variant.versionCode
+                println "New version code for " + variant.buildType.name + "/" + filter + " is " + output.versionCodeOverride
             }
         }
-
-//        linuxAppMain {
-//            dependencies {
-//                implementation 'org.jetbrains.kotlin:kotlin-stdlib-native'
-//            }
-//
-//            kotlin.srcDir('../native/src/main')
-//        }
-
     }
 
-    targets {
-        fromPreset(presets.android, 'androidApp') {
 
-        }
-//        fromPreset(presets.linuxX64, 'linuxApp') {
-//            compilations.main {
-//                cinterops {
-//                    interopName {
-//                         defFile "../native/src/main/c_interop/gtk3.def"
-//                    }
-//                }
-//            }
-//        }
+    namespace 'universe.constellation.orion.viewer'
+    lint {
+        abortOnError false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 }
+
 
 tasks.register('downloadTestFiles') {
     doFirst {
@@ -171,11 +151,14 @@ tasks.register('downloadTestFiles') {
     }
 }
 
+tasks.register('uploadTestData') {
+    doLast {
+        exec {
+            commandLine(androidComponents.sdkComponents.adb.get(), "push", "--sync", "src/androidTest/assets/testData/", "/sdcard/Download/orion")
+        }
+    }
+}
 
-//afterEvaluate {
-//    tasks.each {
-//        if (it.name.contains("pre") && it.name.endsWith("AndroidTestBuild")) {
-//            it.dependsOn 'downloadTestFiles'
-//        }
-//    }
-//}
+afterEvaluate {
+    connectedDebugAndroidTest.dependsOn 'uploadTestData'
+}

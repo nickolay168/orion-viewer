@@ -9,20 +9,17 @@ android {
 
     defaultConfig {
         minSdkVersion orionMinSdk
-        if (!excludeNativeLibsSources) {
-            externalNativeBuild {
-                cmake {
-                    arguments "-DANDROID_STL=c++_static"
-                }
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=c++_static"
             }
         }
     }
 
-    if (!excludeNativeLibsSources) {
-        externalNativeBuild {
-            cmake {
-                path "jni/CMakeLists.txt"
-            }
+    externalNativeBuild {
+        cmake {
+            path "jni/CMakeLists.txt"
         }
     }
+    namespace 'universe.constellation.orion.viewer.mupdf'
 }

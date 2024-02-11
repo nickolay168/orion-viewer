@@ -28,7 +28,7 @@ import universe.constellation.orion.viewer.pdf.DocInfo
 import universe.constellation.orion.viewer.timing
 import java.util.*
 
-class DjvuDocument(fileName: String) : Document {
+class DjvuDocument(private val fileName: String) : Document {
 
     private var lastPage = -1
     private var lastPagePointer = 0L
@@ -63,13 +63,13 @@ class DjvuDocument(fileName: String) : Document {
     }
 
     @Synchronized
-    override fun renderPage(pageNumber: Int, bitmap: Bitmap, zoom: Double, left: Int, top: Int, right: Int, bottom: Int) {
+    override fun renderPage(pageNumber: Int, bitmap: Bitmap, zoom: Double, left: Int, top: Int, right: Int, bottom: Int, leftOffset: Int, topOffset: Int) {
         //destroyed, can be called in non-ui thread
         if (docPointer == 0L) return
 
         val pagePointer = gotoPage(pageNumber)
         timing("Page $pageNumber rendering") {
-            drawPage(docPointer, pagePointer, bitmap, zoom.toFloat(), right - left, bottom - top, left, top, right - left, bottom - top)
+            drawPage(docPointer, pagePointer, bitmap, zoom.toFloat(), bitmap.width, bitmap.height, leftOffset + left, topOffset + top, right - left, bottom - top, left, top)
         }
     }
 
@@ -184,14 +184,19 @@ class DjvuDocument(fileName: String) : Document {
         external fun getPageInfo(doc: Long, pageNum: Int, info: PageInfo): Int
 
         @JvmStatic
-        external fun drawPage(doc: Long, page: Long, bitmap: Bitmap, zoom: Float, pageW: Int, pageH: Int,
+        external fun drawPage(doc: Long, page: Long, bitmap: Bitmap, zoom: Float, bitmapWidth: Int, bitmapHeight: Int,
                               patchX: Int, patchY: Int,
-                              patchW: Int, patchH: Int): Boolean
+                              patchW: Int, patchH: Int,
+                              originX: Int, originY: Int): Boolean
 
         @JvmStatic
         external fun destroying(doc: Long, context: Long)
 
         @JvmStatic
         external fun getPageText(doc: Long, pageNumber: Int, stringBuilder: ArrayList<*>, positions: ArrayList<*>): Boolean
+    }
+
+    override fun toString(): String {
+        return fileName
     }
 }

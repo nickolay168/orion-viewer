@@ -21,7 +21,6 @@ package universe.constellation.orion.viewer.pdf
 
 import android.graphics.Bitmap
 import android.graphics.RectF
-import com.artifex.mupdf.fitz.Location
 import com.artifex.mupdf.fitz.Outline
 import com.artifex.mupdf.fitz.StructuredText
 import com.artifex.mupdf.viewer.MuPDFCore
@@ -30,7 +29,7 @@ import universe.constellation.orion.viewer.PageInfo
 import universe.constellation.orion.viewer.document.Document
 import universe.constellation.orion.viewer.document.OutlineItem
 
-class PdfDocument @Throws(Exception::class) constructor(fileName: String) : Document {
+class PdfDocument @Throws(Exception::class) constructor(private val fileName: String) : Document {
 
     private val core = MuPDFCore(fileName)
 
@@ -41,8 +40,8 @@ class PdfDocument @Throws(Exception::class) constructor(fileName: String) : Docu
         PageInfo(pageNum, x.toInt(), y.toInt())
     }
 
-    override fun renderPage(pageNumber: Int, bitmap: Bitmap, zoom: Double, left: Int, top: Int, right: Int, bottom: Int) {
-        core.drawPage(bitmap, pageNumber, left, top,  right, bottom, zoom.toFloat())
+    override fun renderPage(pageNumber: Int, bitmap: Bitmap, zoom: Double, left: Int, top: Int, right: Int, bottom: Int, leftOffset: Int, topOffset: Int) {
+        core.drawPage(bitmap, pageNumber, leftOffset, topOffset, left, top, right, bottom, zoom.toFloat())
         updateContrast(bitmap, bitmap.width * bitmap.height * 4)
     }
 
@@ -128,4 +127,8 @@ class PdfDocument @Throws(Exception::class) constructor(fileName: String) : Docu
     override fun authenticate(password: String) = core.authenticatePassword(password)
 
     override fun searchPage(pageNumber: Int, text: String): Array<RectF>? = core.searchPage(pageNumber, text)?.map { it.toRect().run { RectF(x0, y0, x1, y1) } }?.toTypedArray()
+
+    override fun toString(): String {
+        return fileName
+    }
 }

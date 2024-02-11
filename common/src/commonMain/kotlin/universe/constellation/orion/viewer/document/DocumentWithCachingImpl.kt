@@ -105,7 +105,8 @@ class DocumentWithCachingImpl(val doc: Document) : DocumentWithCaching, Document
 
         timing("Render page for auto crop processing") {
             val leftTopCorner = strategy.convertToPoint(curPos)
-            doc.renderPage(curPos.pageNumber, bitmap, curPos.docZoom, leftTopCorner.x, leftTopCorner.y, leftTopCorner.x + newWidth, leftTopCorner.y + newHeight)
+            //TODO:
+            doc.renderPage(curPos.pageNumber, bitmap, curPos.docZoom, leftTopCorner.x, leftTopCorner.y, leftTopCorner.x + newWidth, leftTopCorner.y + newHeight, 0, 0)
         }
 
         timing("Extract pixels from bitmap") {
@@ -130,6 +131,10 @@ class DocumentWithCachingImpl(val doc: Document) : DocumentWithCaching, Document
     }
 
     override fun hasCalculatedPageInfo(pageNumber: Int): Boolean = cache[pageNumber] != null
+
+    override fun toString(): String {
+        return doc.toString()
+    }
 }
 
 abstract class Image(val width: Int, val height: Int) {

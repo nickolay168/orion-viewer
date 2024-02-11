@@ -22,7 +22,7 @@ class StubDocument(override var title: String?, var bodyText: String? = title) :
         return getPageInfo(pageNum)
     }
 
-    override fun renderPage(pageNumber: Int, bitmap: Bitmap, zoom: Double, left: Int, top: Int, right: Int, bottom: Int) {
+    override fun renderPage(pageNumber: Int, bitmap: Bitmap, zoom: Double, left: Int, top: Int, right: Int, bottom: Int, leftOffset: Int, topOffset: Int) {
         //TODO: render body text
     }
 
@@ -32,4 +32,8 @@ class StubDocument(override var title: String?, var bodyText: String? = title) :
     override fun destroy() {}
 
     override fun searchPage(pageNumber: Int, text: String): Array<RectF>? = null
+
+    override fun toString(): String {
+        return "Stub[$title]"
+    }
 }

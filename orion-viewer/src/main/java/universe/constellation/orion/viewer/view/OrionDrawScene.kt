@@ -20,43 +20,37 @@
 package universe.constellation.orion.viewer.view
 
 import android.content.Context
-import android.graphics.*
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PointF
 import android.util.AttributeSet
 import android.view.View
-import universe.constellation.orion.viewer.layout.LayoutPosition
-import universe.constellation.orion.viewer.OrionScene
 import universe.constellation.orion.viewer.log
 import universe.constellation.orion.viewer.util.MoveUtil
-import java.util.*
-import java.util.concurrent.CountDownLatch
 
-class OrionDrawScene : View, OrionScene {
+class OrionDrawScene : View {
 
-    var bitmap: Bitmap? = null
-
-    override var info: LayoutPosition? = null
-
-    private var latch: CountDownLatch? = null
+    internal lateinit var orionStatusBarHelper: OrionStatusBarHelper
 
     private var dimensionAware: ViewDimensionAware? = null
 
-    private var scale = 1.0f
+    var pageLayoutManager: PageLayoutManager? = null
 
-    private var startFocus: Point? = null
+    internal var scale = 1.0f
 
-    private var endFocus: Point? = null
+    private var startFocus: PointF? = null
+
+    private var endFocus: PointF? = null
 
     private var enableMoveOnPinchZoom: Boolean = false
 
-    private var borderPaint: Paint? = null
+    internal var borderPaint: Paint? = null
 
-    private var defaultPaint: Paint? = null
+    internal var defaultPaint: Paint? = null
 
-    private var inScaling = false
+    private var inScalingMode = false
 
     private val tasks = ArrayList<DrawTask>()
-
-    private val stuffTempRect = Rect()
 
     private var inited = false
 
@@ -68,10 +62,11 @@ class OrionDrawScene : View, OrionScene {
 
     constructor(context: Context, attrs: AttributeSet, defStyle: Int) : super(context, attrs, defStyle)
 
-    override fun init(colorStuff: ColorStuff) {
+    fun init(colorStuff: ColorStuff, statusBarHelper: OrionStatusBarHelper) {
         this.stuff = colorStuff
         defaultPaint = colorStuff.backgroundPaint
         borderPaint = colorStuff.borderPaint
+        this.orionStatusBarHelper = statusBarHelper
         inited = true
     }
 
@@ -82,67 +77,43 @@ class OrionDrawScene : View, OrionScene {
         }
 
         canvas.save()
-        canvas.translate(0f, 0f)
-        if (bitmap != null && !bitmap!!.isRecycled) {
-            val start = System.currentTimeMillis()
-            log("OrionView: drawing bitmap on view...")
+        val myScale = scale
 
-            val myScale = scale
+        if (inScalingMode) {
+            log("in scaling")
+            canvas.save()
+            canvas.translate(
+                -MoveUtil.calcOffset(
+                    startFocus!!.x,
+                    endFocus!!.x,
+                    myScale,
+                    enableMoveOnPinchZoom
+                ),
+                -MoveUtil.calcOffset(
+                    startFocus!!.y,
+                    endFocus!!.y,
+                    myScale,
+                    enableMoveOnPinchZoom
+                )
+            )
+            canvas.scale(myScale, myScale)
+        }
+        for (p in pageLayoutManager?.visiblePages ?: emptyList()) {
+            p.draw(canvas, this)
+        }
 
-            if (inScaling) {
-                log("in scaling")
-                canvas.save()
-                canvas.translate(
-                        -MoveUtil.calcOffset(startFocus!!.x, endFocus!!.x, myScale, enableMoveOnPinchZoom),
-                        -MoveUtil.calcOffset(startFocus!!.y, endFocus!!.y, myScale, enableMoveOnPinchZoom))
-                canvas.scale(myScale, myScale)
-            }
+        if (inScalingMode) {
+            canvas.restore()
+        }
 
-            stuffTempRect.set(
-                    info!!.x.occupiedAreaStart,
-                    info!!.y.occupiedAreaStart,
-                    info!!.x.occupiedAreaEnd,
-                    info!!.y.occupiedAreaEnd)
-
-            canvas.drawBitmap(bitmap!!, stuffTempRect, stuffTempRect, defaultPaint)
-
-            if (inScaling) {
-                canvas.restore()
-                drawBorder(canvas, myScale)
-            }
-
-            log("OrionView: bitmap rendering takes " + 0.001f * (System.currentTimeMillis() - start) + " s")
-
-            for (drawTask in tasks) {
-                drawTask.drawOnCanvas(canvas, stuff, null)
-            }
+        //TODO move to page
+        for (drawTask in tasks) {
+            drawTask.drawOnCanvas(canvas, stuff, null)
         }
         canvas.restore()
-
-        if (latch != null) {
-            latch!!.countDown()
-        }
     }
 
-    private fun drawBorder(canvas: Canvas, myScale: Float) {
-        log("Draw: border")
-
-        val left = ((-info!!.x.offset - startFocus!!.x) * myScale + if (enableMoveOnPinchZoom) endFocus!!.x else startFocus!!.x).toInt()
-        val top = ((-info!!.y.offset - startFocus!!.y) * myScale + if (enableMoveOnPinchZoom) endFocus!!.y else startFocus!!.y).toInt()
-
-        val right = (left + info!!.x.pageDimension * myScale).toInt()
-        val bottom = (top + info!!.y.pageDimension * myScale).toInt()
-
-        canvas.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), borderPaint!!)
-    }
-
-    override fun onNewImage(bitmap: Bitmap?, info: LayoutPosition?, latch: CountDownLatch?) {
-        this.bitmap = bitmap
-        this.latch = latch
-        this.info = info
-    }
-
-    override fun setDimensionAware(dimensionAware: ViewDimensionAware) {
+    fun setDimensionAware(dimensionAware: ViewDimensionAware) {
         this.dimensionAware = dimensionAware
     }
 
@@ -156,40 +127,42 @@ class OrionDrawScene : View, OrionScene {
         }
     }
 
-
-    override fun isDefaultColorMatrix(): Boolean {
+    fun isDefaultColorMatrix(): Boolean {
         return defaultPaint!!.colorFilter == null
     }
 
-    override fun doScale(scale: Float, startFocus: Point, endFocus: Point, enableMoveOnPinchZoom: Boolean) {
+    fun doScale(scale: Float, startFocus: PointF, endFocus: PointF, enableMoveOnPinchZoom: Boolean) {
         this.scale = scale
         this.startFocus = startFocus
         this.endFocus = endFocus
         this.enableMoveOnPinchZoom = enableMoveOnPinchZoom
     }
 
-    override fun beforeScaling() {
-        inScaling = true
+    fun inScalingMode() {
+        inScalingMode = true
     }
 
-    override fun afterScaling() {
-        this.inScaling = false
+    fun inNormalMode() {
+        this.inScalingMode = false
     }
 
-    override fun addTask(drawTask: DrawTask) {
+    fun addTask(drawTask: DrawTask) {
         tasks.add(drawTask)
     }
 
-    override fun removeTask(drawTask: DrawTask) {
+    fun removeTask(drawTask: DrawTask) {
         tasks.remove(drawTask)
     }
 
-    override fun toView(): View {
+    fun toView(): View {
         return this
     }
 
-    override val sceneWidth: Int
+    val sceneWidth: Int
         get() = width
-    override val sceneHeight: Int
+    val sceneHeight: Int
         get() = height
+
+    val sceneYLocationOnScreen: Int
+        get() = IntArray(2).run { getLocationOnScreen(this); this[1] }
 }

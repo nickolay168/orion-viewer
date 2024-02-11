@@ -23,13 +23,18 @@ task downloadDjvu {
         }
         else {
             exec {
+<<<<<<< HEAD
                 commandLine = ['git', 'clone', 'git://git.code.sf.net/p/djvu/djvulibre-git', djvu]
+=======
+                //origin at git://git.code.sf.net/p/djvu/djvulibre-git
+                commandLine = ['git', 'clone', 'https://github.com/max-kammerer/djvulibre.git', djvu]
+>>>>>>> upstream/master
             }
         }
 
         exec {
             workingDir file(djvu)
-            commandLine = ['git', 'checkout', '32ff0948c5bc27c0b7507dba90e726fc941fcc42'/*current master*/]
+            commandLine = ['git', 'checkout', '2ad2b702d864d1974f0c569a7594b27e67c64a40']
         }
     }
 }
@@ -63,7 +68,7 @@ buildDjvu.mustRunAfter patchDjvu
 
 /*MUPDF CHAIN*/
 task downloadMupdf {
-    def version = "1.23.3"
+    def version = "1.23.9"
 
     doLast {
         def mupdfFolder = new File(mupdf)
@@ -81,11 +86,6 @@ task downloadMupdf {
         else {
             exec {
                 commandLine = ['git', 'clone', 'git://git.ghostscript.com/mupdf.git', mupdf]
-            }
-
-            exec {
-                workingDir file(mupdf)
-                commandLine 'git', 'submodule', 'init'
             }
         }
 

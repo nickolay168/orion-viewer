@@ -27,12 +27,15 @@ import universe.constellation.orion.viewer.geometry.Point
 
 class SimpleLayoutStrategy private constructor(
         private val pageInfoProvider: PageInfoProvider,
-        private val pageCount: Int
+        private val pageCount: Int,
+        private val center: Boolean = false
 ) : LayoutStrategy {
 
-    private var viewWidth = 0
+    override var viewWidth = 0
+        private set
 
-    private var viewHeight = 0
+    override var viewHeight = 0
+        private set
 
     private var VERTICAL_OVERLAP = 3
 
@@ -101,7 +104,7 @@ class SimpleLayoutStrategy private constructor(
         }
 
         //original width and height without cropped margins
-        reset(pos, forward, pageInfoProvider.getPageInfo(pageNum, margins.cropMode), margins.cropMode, zoom, true)
+        reset(pos, forward, pageInfoProvider.getPageInfo(pageNum, margins.cropMode), margins.cropMode, zoom, center)
     }
 
     override fun reset(info: LayoutPosition, forward: Boolean, pageInfo: PageInfo, cropMode: Int, zoom: Int, doCentering: Boolean) {
@@ -151,7 +154,6 @@ class SimpleLayoutStrategy private constructor(
         //System.out.println("overlap " + hOverlap + " " + vOverlap);
 
         walker.reset(info, forward, doCentering, layout)
-        log("new position after reset: $info")
     }
 
     private fun appendManualMargins(info: LayoutPosition, leftMargin: Int, rightMargin: Int) {
@@ -226,7 +228,7 @@ class SimpleLayoutStrategy private constructor(
     }
 
 
-    override fun init(info: State, options: PageOptions) {
+    override fun init(info: LastPageInfo, options: PageOptions) {
         changeCropMargins(CropMargins(info.leftMargin, info.rightMargin, info.topMargin, info.bottomMargin, info.leftEvenMargin, info.rightEventMargin, info.enableEvenCropping, info.cropMode))
         changeRotation(info.rotation)
         changeZoom(info.zoom)
@@ -235,7 +237,7 @@ class SimpleLayoutStrategy private constructor(
         changeOverlapping(options.horizontalOverlapping, options.verticalOverlapping)
     }
 
-    override fun serialize(info: State) {
+    override fun serialize(info: LastPageInfo) {
         info.screenHeight = viewHeight
         info.screenWidth = viewWidth
 
@@ -258,7 +260,7 @@ class SimpleLayoutStrategy private constructor(
         return Point(pos.x.marginLess + pos.x.offset, pos.y.marginLess + pos.y.offset)
     }
 
-    override fun setDimension(width: Int, height: Int) {
+    override fun setViewSceneDimension(width: Int, height: Int) {
         viewWidth = width
         viewHeight = height
     }

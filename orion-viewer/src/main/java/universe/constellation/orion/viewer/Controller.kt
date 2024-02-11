@@ -20,9 +20,20 @@
 package universe.constellation.orion.viewer
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.content.Context.ACTIVITY_SERVICE
 import android.graphics.Point
+import android.graphics.PointF
+import android.os.Build
+import android.util.DisplayMetrics
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import universe.constellation.orion.viewer.bitmap.DeviceInfo
 import universe.constellation.orion.viewer.document.Document
 import universe.constellation.orion.viewer.document.DocumentWithCachingImpl
 import universe.constellation.orion.viewer.document.OutlineItem
@@ -31,22 +42,27 @@ import universe.constellation.orion.viewer.layout.LayoutPosition
 import universe.constellation.orion.viewer.layout.LayoutStrategy
 import universe.constellation.orion.viewer.layout.calcPageLayout
 import universe.constellation.orion.viewer.util.ColorUtil
-import universe.constellation.orion.viewer.view.Renderer
+import universe.constellation.orion.viewer.view.PageLayoutManager
 import universe.constellation.orion.viewer.view.ViewDimensionAware
+import java.util.concurrent.Executors
+
+private const val CACHE_SIZE = 10
 
 class Controller(
     val activity: OrionViewerActivity,
     val document: Document,
     val layoutStrategy: LayoutStrategy,
-    private var renderer: Renderer,
-    private val rootJob: Job = Job()
+    val rootJob: Job = Job(),
 ) : ViewDimensionAware {
 
-    private lateinit var layoutInfo: LayoutPosition
+    val context = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+
+    internal var bitmapCache: BitmapCache = BitmapCache()
+
+    private val layoutInfo: LayoutPosition?
+        get() = pageLayoutManager.currentPageLayout()
 
     private val listener: DocumentViewAdapter
-
-    private var lastPage = -1
 
     lateinit var screenOrientation: String
 
@@ -57,37 +73,36 @@ class Controller(
 
     private var hasPendingEvents = false
 
+    private val pages = LruCacheWithOnEvict<Int, PageView> (CACHE_SIZE) {
+        it.destroy()
+    }
+
+    val pageLayoutManager = PageLayoutManager(this, activity.view)
+
     init {
-        log("Creating controller...")
-
-        renderer.startRenderer()
-
+        log("Creating controller for `$document`")
         listener = object : DocumentViewAdapter() {
-            override fun viewParametersChanged() {
-                if (this@Controller.activity._isResumed) {
-                    this@Controller.renderer.invalidateCache()
-                    drawPage(layoutInfo)
-                    hasPendingEvents = false
+            override fun renderingParametersChanged() {
+                println("viewParametersChanged")
+                hasPendingEvents = if (this@Controller.activity._isResumed) {
+                    bitmapCache.invalidateCache()
+                    pageLayoutManager.forcePageUpdate()
+                    false
                 } else {
-                    hasPendingEvents = true
+                    true
                 }
             }
         }
+        activity.view.pageLayoutManager = pageLayoutManager
 
         activity.subscriptionManager.addDocListeners(listener)
-        log("Controller was created successfully")
-    }
 
-    fun drawPage(page: Int) {
-        layoutStrategy.reset(layoutInfo, page)
-        drawPage(layoutInfo)
     }
 
     @JvmOverloads
-    fun drawPage(info: LayoutPosition = layoutInfo) {
-        layoutInfo = info
-        sendPageChangedNotification()
-        renderer.render(info)
+    fun drawPage(pageNum: Int, pageXOffset: Int = 0, pageYOffset: Int = 0): Deferred<PageView?> {
+        log("Controller drawPage $document $pageNum: $pageXOffset $pageYOffset")
+        return pageLayoutManager.renderPageAt(pageNum, -pageXOffset, -pageYOffset)
     }
 
     fun processPendingEvents() {
@@ -100,59 +115,48 @@ class Controller(
     override fun onDimensionChanged(newWidth: Int, newHeight: Int) {
         if (newWidth > 0 && newHeight > 0) {
             log("New screen size ${newWidth}x$newHeight")
-
-            layoutStrategy.setDimension(newWidth, newHeight)
+            layoutStrategy.setViewSceneDimension(newWidth, newHeight)
             val options = activity.globalOptions
             layoutStrategy.changeOverlapping(options.horizontalOverlapping, options.verticalOverlapping)
-            val offsetX = layoutInfo.x.offset
-            val offsetY = layoutInfo.y.offset
-            layoutStrategy.reset(layoutInfo, layoutInfo.pageNumber)
-            lastScreenSize = lastScreenSize?.let {  screenSize ->
-                if (newWidth == screenSize.x && newHeight == screenSize.y) {
-                    layoutInfo.x.offset = offsetX
-                    layoutInfo.y.offset = offsetY
-                }
-                null
-            }
+            pageLayoutManager.onDimensionChanged(newWidth, newHeight)
             sendViewChangeNotification()
-            renderer.onResume()
-
-            //HACK
-            activity.showTapDialogIfNeeded()
         }
     }
 
-    fun drawNext() {
-        layoutStrategy.calcPageLayout(layoutInfo, true, pageCount)
-        drawPage(layoutInfo)
-    }
-
-    fun drawPrev() {
-        layoutStrategy.calcPageLayout(layoutInfo, false, pageCount)
-        drawPage(layoutInfo)
-    }
-
-    fun translateAndZoom(changeZoom: Boolean, zoomScaling: Float, deltaX: Float, deltaY: Float) {
-        log("zoomscaling  $changeZoom $zoomScaling  $deltaX  $deltaY")
-        val oldOffsetX = layoutInfo.x.offset
-        val oldOffsetY = layoutInfo.y.offset
-        println("oldZoom  " + layoutInfo.docZoom + "  " + layoutInfo.x.offset + " x " + layoutInfo.y.offset)
-
-        if (changeZoom) {
-            layoutStrategy.changeZoom((10000.0f * zoomScaling * layoutInfo.docZoom).toInt())
-            layoutStrategy.reset(layoutInfo, layoutInfo.pageNumber)
+    fun drawNext(): Deferred<PageView?>? {
+        layoutInfo?.let {
+            val copy = it.copy()
+            layoutStrategy.calcPageLayout(copy, true, pageCount)
+            return drawPage(copy.pageNumber, copy.x.offset, copy.y.offset)
+        } ?: run {
+            log("Problem: no visible page invoking drawNext")
+            return null
         }
+    }
 
-        layoutInfo.x.offset = (zoomScaling * oldOffsetX + deltaX).toInt()
-        layoutInfo.y.offset = (zoomScaling * oldOffsetY + deltaY).toInt()
-        println("newZoom  " + layoutInfo.docZoom + "  " + layoutInfo.x.offset + " x " + layoutInfo.y.offset)
+    fun drawPrev(): Deferred<PageView?>? {
+        layoutInfo?.let {
+            val copy = it.copy()
+            layoutStrategy.calcPageLayout(copy, false, pageCount)
+            log("Controller drawPrev ${copy.pageNumber} $document: ${copy.x.offset} ${copy.y.offset}")
+            return drawPage(copy.pageNumber, copy.x.offset, copy.y.offset)
+        } ?: run {
+            log("Problem: no visible page invoking drawPrev")
+            return null
+        }
+    }
 
-        sendViewChangeNotification()
+    fun translateAndZoom(zoomScaling: Float, startFocus: PointF, endFocus: PointF, deltaX: Float, deltaY: Float) {
+        layoutInfo?.let {
+            layoutStrategy.changeZoom((10000.0f * zoomScaling * it.docZoom).toInt())
+            pageLayoutManager.performTouchZoom(zoomScaling, startFocus, endFocus)
+            //TODO split notification into page geometry and book info
+            //sendViewChangeNotification()
+        }
     }
 
     fun changeZoom(zoom: Int) {
         if (layoutStrategy.changeZoom(zoom)) {
-            layoutStrategy.reset(layoutInfo, layoutInfo.pageNumber)
             sendViewChangeNotification()
         }
     }
@@ -161,11 +165,10 @@ class Controller(
         get() = layoutStrategy.zoom
 
     val currentPageZoom: Double
-        get() = layoutInfo.docZoom
+        get() = layoutInfo?.docZoom ?: 1.0
 
     fun changeCropMargins(cropMargins: CropMargins) {
         if (layoutStrategy.changeCropMargins(cropMargins)) {
-            layoutStrategy.reset(layoutInfo, layoutInfo.pageNumber)
             if (document is DocumentWithCachingImpl) {
                 document.resetCache()
             }
@@ -176,21 +179,22 @@ class Controller(
     val margins: CropMargins
         get() = layoutStrategy.margins
 
-    suspend fun destroy() {
-        log("Destroying controller for ${document.title}...")
+    fun destroy() {
         activity.subscriptionManager.unSubscribe(listener)
-        rootJob.cancelAndJoin()
-        renderer.stopRenderer()
-        document.destroy()
+        pageLayoutManager.destroy()
+        pages.evictAll()
+        GlobalScope.launch(Dispatchers.Default) {
+            log("Destroying controller for $document...")
+            rootJob.cancelAndJoin()
+            document.destroy()
+        }
     }
 
     fun onPause() {
-        renderer.onPause()
     }
 
     fun changeOverlap(horizontal: Int, vertical: Int) {
         if (layoutStrategy.changeOverlapping(horizontal, vertical)) {
-            layoutStrategy.reset(layoutInfo, layoutInfo.pageNumber)
             sendViewChangeNotification()
         }
     }
@@ -199,13 +203,12 @@ class Controller(
         get() = layoutStrategy.rotation
         set(rotation) {
             if (layoutStrategy.changeRotation(rotation)) {
-                layoutStrategy.reset(layoutInfo, layoutInfo.pageNumber)
                 sendViewChangeNotification()
             }
         }
 
     val currentPage: Int
-        get() = layoutInfo.pageNumber
+        get() = pageLayoutManager.currentPageLayout()?.pageNumber ?: -1
 
     val pageCount: Int
         get() = document.pageCount
@@ -217,10 +220,6 @@ class Controller(
             document.setThreshold(info.threshold)
 
             layoutStrategy.init(info, activity.globalOptions)
-            layoutInfo = LayoutPosition()
-            layoutStrategy.reset(layoutInfo, info.pageNumber)
-            layoutInfo.x.offset = info.newOffsetX
-            layoutInfo.y.offset = info.newOffsetY
 
             lastScreenSize = Point(info.screenWidth, info.screenHeight)
             changeOrinatation(screenOrientation)
@@ -232,22 +231,15 @@ class Controller(
 
     fun serializeAndSave(info: LastPageInfo, activity: Activity) {
         layoutStrategy.serialize(info)
-        info.newOffsetX = layoutInfo.x.offset
-        info.newOffsetY = layoutInfo.y.offset
-        info.pageNumber = layoutInfo.pageNumber
+        info.newOffsetX = layoutInfo?.x?.offset ?: 0
+        info.newOffsetY = layoutInfo?.y?.offset ?: 0
+        info.pageNumber = layoutInfo?.pageNumber ?: 0
         info.screenOrientation = screenOrientation
         info.save(activity)
     }
 
     private fun sendViewChangeNotification() {
         activity.subscriptionManager.sendViewChangeNotification()
-    }
-
-    private fun sendPageChangedNotification() {
-        if (lastPage != layoutInfo.pageNumber) {
-            lastPage = layoutInfo.pageNumber
-            activity.subscriptionManager.sendPageChangedNotification(lastPage, document.pageCount)
-        }
     }
 
     val direction: String
@@ -314,28 +306,9 @@ class Controller(
     val outline: Array<OutlineItem>?
         get() = document.outline
 
-    fun selectText(startX: Int, startY: Int, widht: Int, height: Int, isSingleWord: Boolean): String? {
-        var startX = startX
-        var startY = startY
-        var widht = widht
-        var height = height
-
-        if (widht < 0) {
-            startX += widht
-            widht = -widht
-        }
-        if (height < 0) {
-            startY += height
-            height = -height
-        }
-        val leftTopCorner = layoutStrategy.convertToPoint(layoutInfo)
+    fun selectRawText(pageNum: Int, startX: Int, startY: Int, widht: Int, height: Int, isSingleWord: Boolean): String? {
         return document.getText(
-                layoutInfo.pageNumber,
-                ((leftTopCorner.x + startX) / layoutInfo.docZoom).toInt(),
-                ((leftTopCorner.y + startY) / layoutInfo.docZoom).toInt(),
-                (widht / layoutInfo.docZoom).toInt(),
-                (height / layoutInfo.docZoom).toInt(),
-                isSingleWord
+            pageNum, startX, startY, widht, height, isSingleWord
         )?.trimText(isSingleWord)
     }
 
@@ -356,8 +329,49 @@ class Controller(
         }
     }
 
+    fun createCachePageView(pageNum: Int): PageView {
+        val pageView = pages.get(pageNum)
+        if (pageView != null) {
+            if (pageView.state == PageState.CAN_BE_DELETED) {
+                pageView.reinit() //TODO: split bitmap invalidation and page unload
+            }
+            return pageView
+        } else {
+            println("create page $pageNum")
+            val pageView = PageView(
+                pageNum,
+                document,
+                controller = this,
+                rootJob = rootJob,
+                pageLayoutManager = pageLayoutManager
+            ).apply { init() }
+            pages.put(pageNum, pageView)
+            return pageView
+        }
+    }
+
+    fun drawPage(lp: LayoutPosition) {
+        drawPage(lp.pageNumber, lp.x.offset, lp.y.offset)
+    }
+
     companion object {
         //https://docs.oracle.com/javase/7/docs/api/java/util/regex/Pattern.html
         val PUNCTUATION_CHARS = "!\"#\$%&'()*+,-./:;<=>?@[\\]^_`{|}~".toSet()
+    }
+
+    fun getDeviceInfo(): DeviceInfo {
+        val am = activity.getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        Runtime.getRuntime().maxMemory() / 1024
+        Runtime.getRuntime().totalMemory()
+        val dm = DisplayMetrics()
+        activity.windowManager.defaultDisplay.getMetrics(dm);
+
+        val width = dm.widthPixels
+        val height = dm.heightPixels
+        return DeviceInfo(am.memoryClass, width, height, Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1)
+    }
+
+    override fun toString(): String {
+        return "Controller for $document (controller identity hashCode=${System.identityHashCode(this)}})"
     }
 }

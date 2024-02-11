@@ -1,3 +1,20 @@
+===== 0.82.6 (Dec 25, 2023) =====
+Small fixes and improvements
+
+===== 0.82.5 (Dec 03, 2023) =====
+Small fixes and improvements
+
+===== 0.82.4 (Nov 07, 2023) =====
+Fixed ConcurrentModificationException
+
+===== 0.82.3 (Oct 26, 2023) =====
+Reworked work with permissions
+
+===== 0.82.2 (Oct 16, 2023) =====
+* Fixed app crash during text search in pdf files
+* Reworked a bit Android permissions
+* Added new tests
+
 ===== 0.82.1 (Oct 1, 2023) =====
 * Mupdf updated to 1.23.3
 

@@ -109,6 +109,12 @@ public class GlobalOptions implements Serializable, PageOptions {
 
     public final static String SHOW_TAP_HELP = "SHOW_TAP_HELP";
 
+    public final static String TEST_SCREEN_WIDTH = "TEST_SCREEN_WIDTH";
+
+    public final static String TEST_SCREEN_HEIGHT = "TEST_SCREEN_HEIGHT";
+
+    public final static String OPEN_AS_TEMP_BOOK = "OPEN_AS_TEMP_BOOK";
+
     public final static String SCREEN_BACKLIGHT_TIMEOUT = "SCREEN_BACKLIGHT_TIMEOUT";
 
     public final static String ENABLE_TOUCH_MOVE = "ENABLE_TOUCH_MOVE";
@@ -324,20 +330,6 @@ public class GlobalOptions implements Serializable, PageOptions {
     public boolean isEinkOptimization() {
         return getBooleanProperty(EINK_OPTIMIZATION, false);
     }
-
-//    public Integer getInteger(String key) {
-//        if (!prefValues.containsKey(key)) {
-//            String value = prefs.getString(key, null);
-//            Integer newIntValue = null;
-//            if (value == null || "".equals(value)) {
-//                return null;
-//            } else {
-//                newIntValue = Integer.valueOf(value);
-//            }
-//            prefValues.put(key, newIntValue);
-//        }
-//        return (Integer) prefValues.get(key);
-//    }
 
     public int getIntFromStringProperty(String key, int defaultValue) {
         if (!prefValues.containsKey(key)) {
